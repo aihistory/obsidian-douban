@@ -1,0 +1,109 @@
+---
+alwaysApply: true
+description: Obsidian豆瓣插件项目架构和核心组件指南
+---
+
+# Obsidian豆瓣插件 - 项目架构指南
+
+## 项目概述
+这是一个功能丰富的 Obsidian 插件，主要功能是从豆瓣网站导入书籍、电影、音乐、游戏、电视剧、日记等元数据，并在 Obsidian 中生成格式化的笔记。
+
+## 核心功能
+- 🔍 **搜索与导入**：从豆瓣搜索并导入各类内容的元数据
+- 🔄 **个人数据同步**：同步用户的评分、评论、观看状态、标记时间等个人数据
+- 📝 **模板系统**：支持自定义模板格式化输出内容
+- 🌐 **多语言支持**：中英文界面
+- 🖼️ **图片处理**：支持保存封面到本地或图床
+- 📱 **移动端支持**：桌面端和移动端双平台支持
+
+## 项目结构
+
+### 主入口文件
+- [src/org/wanxp/main.ts](mdc:src/org/wanxp/main.ts) - 插件主类 `DoubanPlugin`，继承自 Obsidian 的 Plugin 类
+
+### 核心配置文件
+- [manifest.json](mdc:manifest.json) - Obsidian 插件清单
+- [package.json](mdc:package.json) - npm 包配置，包含构建脚本和依赖
+- [tsconfig.json](mdc:tsconfig.json) - TypeScript 配置
+- [esbuild.config.mjs](mdc:esbuild.config.mjs) - ESBuild 构建配置
+
+### 主要目录结构
+```
+src/org/wanxp/
+├── main.ts                          # 插件主入口
+├── constant/                        # 常量配置
+│   ├── Constsant.ts                # 基础常量
+│   ├── DefaultSettings.ts          # 默认设置
+│   └── DefaultTemplateContent.ts   # 默认模板内容
+├── douban/                         # 豆瓣相关功能
+│   ├── data/                       # 数据处理
+│   ├── setting/                    # 设置管理
+│   ├── sync/                       # 数据同步
+│   ├── component/                  # UI组件
+│   └── user/                       # 用户管理
+├── utils/                          # 工具类
+├── lang/                           # 国际化
+├── file/                           # 文件处理
+└── net/                            # 网络请求
+```
+
+## 核心架构组件
+
+### 1. 数据模型层 (Model)
+- **DoubanSubject** 系列：各类内容的数据模型（Book, Movie, Music, Game等）
+- **HandleContext/HandleResult**：处理上下文和结果封装
+- **SearchPage**：搜索结果页面模型
+
+### 2. 数据处理层 (Handler)
+- **DoubanAbstractLoadHandler**：抽象加载处理器基类
+- **具体处理器**：BookLoadHandler, MovieLoadHandler, MusicLoadHandler等
+- **搜索处理器**：DoubanSearchChooseItemHandler
+
+### 3. 同步服务层 (Sync)
+- **SyncHandler**：同步处理器基类  
+- **具体同步器**：BookSyncHandler, MovieSyncHandler等
+- **列表处理器**：处理用户的收藏、想看、在看等列表
+
+### 4. 用户界面层 (UI)
+- **DoubanSettingTab**：设置面板
+- **Modal组件**：搜索弹窗、同步弹窗、登录弹窗等
+- **Suggester组件**：搜索建议和选择组件
+
+### 5. 工具服务层 (Utils)
+- **HttpUtil**：网络请求工具（分桌面端和移动端）
+- **FileUtil**：文件操作工具
+- **StringUtil/TimeUtil**：字符串和时间处理工具
+- **YamlUtil**：YAML front matter 处理
+
+## 支持的内容类型
+- 📚 **书籍 (Book)**：作者、出版社、ISBN、页数等
+- 🎬 **电影 (Movie)**：导演、演员、上映日期、时长等  
+- 🎵 **音乐 (Music)**：艺术家、专辑、发行日期等
+- 🎮 **游戏 (Game)**：开发商、发行商、平台等
+- 📺 **电视剧 (Teleplay)**：导演、演员、集数等
+- 📝 **日记 (Note)**：个人记录和想法
+
+## 模板系统
+插件使用可自定义的模板系统：
+- **默认模板**：每种内容类型都有默认模板
+- **自定义模板**：用户可以自定义模板格式
+- **变量替换**：支持 {{title}}, {{author}}, {{score}} 等变量
+- **条件渲染**：支持根据数据是否存在来条件显示内容
+
+## 构建和开发
+- **开发模式**：`npm run dev` - 启用热重载
+- **生产构建**：`npm run build` - 生成优化后的 main.js
+- **测试**：`npm test` - 运行 Jest 测试
+- **文档**：`npm run docs:dev` - 启动 VitePress 文档服务
+
+## 数据流
+1. **用户搜索** → SearchModal → SearchPageFetcher → 豆瓣API
+2. **选择内容** → LoadHandler → 解析HTML → DoubanSubject
+3. **生成笔记** → 模板引擎 → FileHandler → Obsidian笔记
+4. **同步数据** → SyncHandler → 批量处理用户数据 → 生成多个笔记
+
+## 网络请求策略
+- **反爬虫对策**：请求间隔控制（4-10秒）
+- **错误处理**：HTTP错误、网络超时、人机验证处理
+- **移动端适配**：使用不同的HTTP实现
+- **Cookie管理**：维护登录状态

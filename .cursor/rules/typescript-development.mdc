@@ -1,0 +1,190 @@
+---
+globs: "*.ts,*.tsx"
+description: TypeScript 开发规范和最佳实践
+---
+
+# TypeScript 开发规范
+
+## 代码风格和规范
+- 使用 **4 空格缩进**（遵循项目 .editorconfig 配置）
+- 使用 **分号** 结束语句
+- 使用 **驼峰命名** (camelCase) 命名变量和函数
+- 使用 **帕斯卡命名** (PascalCase) 命名类和接口
+- 使用 **UPPER_SNAKE_CASE** 命名常量
+
+## 导入规范
+```typescript
+// 1. Node.js 内置模块
+import { readFile } from 'fs';
+
+// 2. 第三方库
+import { Notice, Plugin } from 'obsidian';
+import * as cheerio from 'cheerio';
+
+// 3. 本地模块 - 使用相对路径
+import { DEFAULT_SETTINGS } from './constant/DefaultSettings';
+import DoubanSubject from './douban/data/model/DoubanSubject';
+```
+
+## 类型定义
+- 优先使用 **interface** 定义对象结构
+- 使用 **type** 定义联合类型、交叉类型或复杂类型
+- 为所有公共方法和属性提供类型注解
+- 避免使用 `any`，优先使用更具体的类型
+
+```typescript
+// 好的示例
+interface DoubanSubject {
+    id: string;
+    title: string;
+    score?: number;
+    type: SupportType;
+}
+
+// 避免
+let data: any = {};
+```
+
+## 异步编程
+- 优先使用 **async/await** 语法，避免 Promise.then()
+- 正确处理异步操作的错误
+- 使用适当的错误处理机制
+
+```typescript
+async putToObsidian(context: HandleContext, extract: DoubanSubject) {
+    try {
+        const result = await this.doubanExtractHandler.handle(context, extract);
+        // 处理结果...
+    } catch (error) {
+        console.error('处理失败:', error);
+        new Notice('导入失败');
+    }
+}
+```
+
+## 错误处理
+- 使用具体的错误类型而不是泛型 Error
+- 提供有意义的错误信息给用户
+- 记录详细的错误日志用于调试
+
+```typescript
+// 好的示例
+if (!response.ok) {
+    throw new Error(`豆瓣请求失败: ${response.status} ${response.statusText}`);
+}
+
+// 用户友好的提示
+new Notice(i18nHelper.t("notice.import.failed"));
+```
+
+## 模块组织
+- 每个文件只导出一个主要的类或函数
+- 使用 barrel exports (index.ts) 来简化导入路径
+- 将相关的类型定义放在同一个模块中
+- 抽象类和接口放在合适的目录中
+
+## 性能优化
+- 合理使用缓存机制避免重复网络请求
+- 使用防抖和节流控制高频操作
+- 避免在循环中进行异步操作，使用 Promise.all() 并行处理
+
+```typescript
+// 并行处理多个请求
+const results = await Promise.all(
+    urls.map(url => this.httpUtil.get(url))
+);
+```
+
+## Obsidian 插件特定规范
+
+### 1. 生命周期管理
+```typescript
+export default class DoubanPlugin extends Plugin {
+    async onload() {
+        // 插件加载时的初始化逻辑
+        await this.loadSettings();
+        this.addSettingTab(new DoubanSettingTab(this.app, this));
+    }
+
+    onunload() {
+        // 清理资源
+        this.statusHolder?.cleanup();
+    }
+}
+```
+
+### 2. 设置管理
+- 使用类型安全的设置对象
+- 提供默认设置值
+- 正确处理设置的保存和加载
+
+```typescript
+async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+}
+
+async saveSettings() {
+    await this.saveData(this.settings);
+}
+```
+
+### 3. UI 组件
+- 继承 Obsidian 提供的基础组件
+- 正确处理组件的生命周期
+- 提供用户友好的交互体验
+
+```typescript
+export class DoubanSearchModal extends Modal {
+    onOpen() {
+        // 初始化 UI
+    }
+
+    onClose() {
+        // 清理资源
+    }
+}
+```
+
+## 网络请求处理
+- 实现重试机制处理网络不稳定
+- 设置合理的超时时间
+- 处理不同的 HTTP 状态码
+- 实现反爬虫策略（请求间隔、User-Agent等）
+
+```typescript
+async requestWithRetry(url: string, retries = 3): Promise<Response> {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await fetch(url);
+            if (response.ok) return response;
+        } catch (error) {
+            if (i === retries - 1) throw error;
+            await this.delay(1000 * Math.pow(2, i)); // 指数退避
+        }
+    }
+}
+```
+
+## 日志和调试
+- 使用项目的统一日志工具 `log()` 函数
+- 区分不同级别的日志（debug, info, warn, error）
+- 避免在生产环境输出敏感信息
+
+```typescript
+import { log } from "src/org/wanxp/utils/Logutil";
+
+log.debug('开始处理豆瓣数据', { id, type });
+log.error('网络请求失败', error);
+```
+
+## 国际化支持
+- 使用项目的 i18n 系统
+- 所有用户可见的文本都应该支持国际化
+- 提供有意义的翻译 key
+
+```typescript
+import { i18nHelper } from './lang/helper';
+
+const message = i18nHelper.t("search.no.result");
+new Notice(message);
+```

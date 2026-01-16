@@ -1,0 +1,327 @@
+---
+description: 插件设置和配置管理相关的开发规范
+globs: "**/setting/**/*.ts,**/constant/**/*.ts"
+---
+
+# 设置和配置管理规范
+
+## 设置系统架构
+
+### 1. 设置数据模型
+项目使用 `DoubanPluginSetting` 接口定义所有配置项：
+
+```typescript
+interface DoubanPluginSetting {
+    // 基础设置
+    dateFormat: string;           // 日期格式
+    timeFormat: string;           // 时间格式
+    searchUrl: string;            // 搜索URL模板
+    
+    // 模板设置
+    movieTemplateFile: string;    // 电影模板
+    bookTemplateFile: string;     // 书籍模板
+    musicTemplateFile: string;    // 音乐模板
+    // ...其他类型模板
+    
+    // 图片设置
+    pictureBedFlag: boolean;      // 是否使用图床
+    pictureBedType: PictureBedType; // 图床类型
+    pictureBedSetting: any;       // 图床具体配置
+    
+    // 数组显示设置
+    arraySettings: ArraySetting[]; // 数组格式化配置
+    
+    // 在线设置
+    onlineSettingsFileName: string; // 在线配置文件名
+    onlineSettingsGistId: string;   // GitHub Gist ID
+}
+```
+
+### 2. 默认设置管理
+- 所有默认值定义在 [DefaultSettings.ts](mdc:src/org/wanxp/constant/DefaultSettings.ts)
+- 默认模板内容在 [DefaultTemplateContent.ts](mdc:src/org/wanxp/constant/DefaultTemplateContent.ts)
+- 使用 `Object.assign()` 合并用户设置和默认设置
+
+```typescript
+async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+}
+```
+
+## 设置页面组织
+
+### 1. 设置页面结构
+设置页面按功能模块组织，每个模块有独立的Helper类：
+
+- **BasicSettingsHelper** - 基础设置（路径、日期格式等）
+- **LoginSettingsHelper** - 登录设置（用户认证）
+- **OutputSettingsHelper** - 输出设置（文件路径、命名规则）
+- **TemplateSettingHelper** - 模板设置（自定义模板）
+- **TemplateVariableSettingsHelper** - 模板变量设置
+- **CustomPropertySettingsHelper** - 自定义属性设置
+- **ArrayDisplayTypeSettingsHelper** - 数组显示格式设置
+- **AdvancedSettingsHelper** - 高级设置（网络、调试等）
+
+### 2. 设置UI构建模式
+```typescript
+export function constructBasicUI(containerEl: HTMLElement, plugin: DoubanPlugin) {
+    // 创建设置组
+    const basicGroup = containerEl.createDiv('setting-group');
+    basicGroup.createEl('h3', { text: i18nHelper.t('setting.basic.title') });
+    
+    // 添加具体设置项
+    new Setting(basicGroup)
+        .setName(i18nHelper.t('setting.date.format'))
+        .setDesc(i18nHelper.t('setting.date.format.desc'))
+        .addText(text => text
+            .setPlaceholder('yyyy-MM-DD')
+            .setValue(plugin.settings.dateFormat)
+            .onChange(async (value) => {
+                plugin.settings.dateFormat = value;
+                await plugin.saveSettings();
+            }));
+}
+```
+
+## 模板系统配置
+
+### 1. 模板文件管理
+- **模板存储**：支持外部文件或内联模板
+- **模板变量**：使用 `{{variable}}` 语法
+- **条件显示**：支持基于数据存在性的条件渲染
+- **类型特化**：每种内容类型有独立的模板
+
+### 2. 默认模板结构
+```typescript
+export const DEFAULT_BOOK_TEMPLATE = `# {{title}}
+
+> [!info] 基本信息
+> - 作者: {{author}}
+> - 出版社: {{publisher}}
+> - 出版年: {{yearPublished}}
+> - 评分: {{score}} {{scoreStar}}
+> - ISBN: {{isbn}}
+
+## 简介
+{{desc}}
+
+## 个人记录
+- 状态: {{myState}}
+- 评分: {{myRating}} 
+- 标记时间: {{myCollectionDate}}
+- 个人标签: {{myTags}}
+- 评论: {{myComment}}
+
+---
+[豆瓣链接]({{url}})
+`;
+```
+
+### 3. 模板变量配置
+支持自定义变量的显示格式：
+```typescript
+interface TemplateVariable {
+    name: string;           // 变量名
+    description: string;    // 描述
+    example: string;       // 示例值
+    type: VariableType;    // 类型（字符串、数组等）
+    format?: string;       // 格式化选项
+}
+```
+
+## 数组格式化配置
+
+### 1. 数组设置模型
+```typescript
+interface ArraySetting {
+    arrayName: string;        // 配置名称
+    arrayStart: string;       // 数组开始符
+    arrayElementStart: string; // 元素开始符  
+    arraySpiltV2: string;     // 分隔符
+    arrayElementEnd: string;  // 元素结束符
+    arrayEnd: string;         // 数组结束符
+    index: number;           // 配置索引
+}
+```
+
+### 2. 常见格式预设
+```typescript
+// Wiki链接格式: [[元素1]], [[元素2]]
+const WIKI_LINK_FORMAT = {
+    arrayStart: "",
+    arrayElementStart: "[[",
+    arraySpiltV2: "], [",  
+    arrayElementEnd: "]]",
+    arrayEnd: ""
+};
+
+// 标签格式: #标签1 #标签2
+const TAG_FORMAT = {
+    arrayStart: "",
+    arrayElementStart: "#",
+    arraySpiltV2: " #",
+    arrayElementEnd: "",
+    arrayEnd: ""
+};
+```
+
+## 图床配置管理
+
+### 1. 支持的图床类型
+```typescript
+enum PictureBedType {
+    PicGo = "PicGo",      // PicGo图床
+    Custom = "Custom"      // 自定义图床
+}
+```
+
+### 2. PicGo配置
+```typescript
+interface PictureBedSetting_PicGo {
+    domain: string;        // 图床域名
+    uploadPath: string;    // 上传路径
+    token?: string;        // 访问令牌
+}
+```
+
+### 3. 图片处理流程
+```typescript
+async handleImage(imageUrl: string): Promise<string> {
+    if (this.settings.pictureBedFlag) {
+        // 上传到图床
+        const uploadedUrl = await this.netFileHandler.uploadToPictureBed(imageUrl);
+        return uploadedUrl;
+    } else {
+        // 保存到本地
+        const localPath = await this.fileHandler.downloadAndSaveImage(imageUrl);
+        return localPath;
+    }
+}
+```
+
+## 在线配置同步
+
+### 1. GitHub Gist集成
+支持将配置同步到 GitHub Gist：
+- **配置备份**：定期备份设置到云端
+- **多设备同步**：在不同设备间同步配置
+- **版本控制**：保留配置变更历史
+
+```typescript
+interface DoubanPluginOnlineSettings {
+    version: string;                    // 配置版本
+    lastModified: string;              // 最后修改时间
+    settings: Partial<DoubanPluginSetting>; // 设置内容
+}
+```
+
+### 2. 设置同步逻辑
+```typescript
+async syncSettingsFromOnline(): Promise<void> {
+    const gistId = this.settings.onlineSettingsGistId;
+    const onlineSettings = await GithubUtil.fetchGistContent(gistId);
+    
+    if (onlineSettings && this.isNewerVersion(onlineSettings)) {
+        // 合并在线配置
+        this.settings = Object.assign(this.settings, onlineSettings.settings);
+        await this.saveSettings();
+    }
+}
+```
+
+## 自定义属性系统
+
+### 1. 自定义属性模型
+```typescript
+interface CustomProperty {
+    name: string;          // 属性名
+    type: PropertyType;    // 属性类型
+    source: PropertySource; // 数据源
+    defaultValue?: string; // 默认值
+    format?: string;       // 格式化规则
+}
+```
+
+### 2. 属性类型支持
+- **字符串**：简单文本值
+- **数组**：支持多值属性
+- **日期**：日期时间值
+- **数字**：数值类型
+- **布尔**：是/否值
+
+### 3. 数据源配置
+```typescript
+enum PropertySource {
+    DoubanApi = "douban",     // 来自豆瓣API
+    UserInput = "user",       // 用户输入
+    Generated = "generated"    // 自动生成
+}
+```
+
+## 设置验证和错误处理
+
+### 1. 设置验证规则
+```typescript
+function validateSettings(settings: DoubanPluginSetting): ValidationResult {
+    const errors: string[] = [];
+    
+    // 验证日期格式
+    if (!isValidDateFormat(settings.dateFormat)) {
+        errors.push(i18nHelper.t('setting.error.invalid.date.format'));
+    }
+    
+    // 验证模板文件路径
+    if (settings.movieTemplateFile && !await fileExists(settings.movieTemplateFile)) {
+        errors.push(i18nHelper.t('setting.error.template.not.found'));
+    }
+    
+    return { isValid: errors.length === 0, errors };
+}
+```
+
+### 2. 设置迁移
+支持从旧版本配置迁移到新版本：
+```typescript
+function migrateSettings(oldSettings: any, currentVersion: string): DoubanPluginSetting {
+    // 版本兼容性处理
+    if (oldSettings.version < '2.0.0') {
+        // 迁移旧的配置格式
+        oldSettings.arraySettings = convertLegacyArraySettings(oldSettings.legacyArrayConfig);
+    }
+    
+    return Object.assign({}, DEFAULT_SETTINGS, oldSettings);
+}
+```
+
+## 国际化配置
+
+### 1. 语言文件结构
+```typescript
+// zh-cn.ts
+export default {
+    'setting.basic.title': '基础设置',
+    'setting.date.format': '日期格式',
+    'setting.template.movie': '电影模板',
+    // ...更多翻译
+};
+
+// en.ts  
+export default {
+    'setting.basic.title': 'Basic Settings',
+    'setting.date.format': 'Date Format', 
+    'setting.template.movie': 'Movie Template',
+    // ...more translations
+};
+```
+
+### 2. 国际化使用
+```typescript
+import { i18nHelper } from '../../lang/helper';
+
+// 在UI中使用
+.setName(i18nHelper.t('setting.basic.title'))
+.setDesc(i18nHelper.t('setting.basic.desc'))
+
+// 在通知中使用
+new Notice(i18nHelper.t('setting.save.success'));
+```

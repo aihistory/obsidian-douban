@@ -1,0 +1,286 @@
+---
+description: 豆瓣API接口和数据处理相关的开发规范和最佳实践
+globs: "**/douban/**/*.ts,**/utils/**/*.ts"
+---
+
+# 豆瓣 API 和数据处理规范
+
+## 豆瓣 API 交互原则
+
+### 1. 反爬虫策略
+- **请求频率控制**：正常速度 4秒/次，慢速模式 10秒/次（200条后）
+- **随机延迟**：在基础延迟上增加随机时间避免被检测
+- **User-Agent 轮换**：模拟不同浏览器和设备
+- **Cookie 管理**：维护登录状态和会话信息
+
+```typescript
+// 请求间隔控制示例
+const delay = BasicConst.CALL_DOUBAN_DELAY + 
+              Math.random() * BasicConst.CALL_DOUBAN_DELAY_RANGE;
+await TimeUtil.sleep(delay);
+```
+
+### 2. 错误处理策略
+- **网络错误**：实现重试机制（最多3次）
+- **403/429错误**：增加延迟时间，切换到慢速模式  
+- **人机验证**：弹出验证弹窗，暂停后续请求
+- **404错误**：标记为无效资源，不再重试
+
+### 3. 支持的数据类型
+```typescript
+enum SupportType {
+    BOOK = "book",        // 书籍
+    MOVIE = "movie",      // 电影  
+    MUSIC = "music",      // 音乐
+    GAME = "game",        // 游戏
+    TELEPLAY = "tv",      // 电视剧
+    NOTE = "note",        // 日记
+    OTHER = "other"       // 其他
+}
+```
+
+## 数据获取流程
+
+### 1. 搜索流程
+```typescript
+// 搜索API调用链
+SearchModal → SearchPageFetcher → SearchParser → DoubanSearchResultSubject[]
+```
+
+**关键组件：**
+- **SearchPageFetcher**: 获取搜索结果页面
+- **SearchParser**: 解析HTML获取条目列表
+- **DoubanSearchResultSubject**: 搜索结果数据模型
+
+### 2. 详情获取流程  
+```typescript
+// 详情获取调用链
+LoadHandler → HttpUtil → HTML解析 → DoubanSubject
+```
+
+**处理器选择：**
+- `DoubanBookLoadHandler` - 书籍详情处理
+- `DoubanMovieLoadHandler` - 电影详情处理  
+- `DoubanMusicLoadHandler` - 音乐详情处理
+- `DoubanGameLoadHandler` - 游戏详情处理
+- `DoubanTeleplayLoadHandler` - 电视剧详情处理
+- `DoubanNoteLoadHandler` - 日记处理
+
+### 3. 个人数据同步流程
+```typescript
+// 同步流程
+SyncHandler → ListHandler → 批量LoadHandler → 生成笔记
+```
+
+## HTML 解析规范
+
+### 1. 使用 Cheerio 解析
+```typescript
+import * as cheerio from 'cheerio';
+
+const $ = cheerio.load(html);
+const title = $('#wrapper h1 span[property="v:itemreviewed"]').text().trim();
+const score = $('strong[property="v:average"]').text().trim();
+```
+
+### 2. 数据清理原则
+- **文本清理**：去除多余空白、HTML实体解码
+- **数组处理**：正确分割和处理数组数据（演员、导演、类型等）
+- **空值处理**：区分空字符串和 undefined
+- **类型转换**：字符串到数字、日期的安全转换
+
+```typescript
+// 安全的数字转换
+const score = parseFloat(scoreText) || 0;
+
+// 安全的数组处理  
+const genres = genreText?.split('/').map(g => g.trim()).filter(Boolean) || [];
+```
+
+### 3. Schema.org 微数据解析
+豆瓣使用 Schema.org 微数据格式，优先使用这些结构化数据：
+
+```typescript
+// 利用 Schema.org 属性
+const title = $('[property="v:itemreviewed"]').text();
+const datePublished = $('[property="v:initialReleaseDate"]').attr('content');
+const averageRating = $('[property="v:average"]').text();
+```
+
+## 数据模型设计
+
+### 1. 基础模型结构
+```typescript
+abstract class DoubanSubject {
+    id: string;              // 豆瓣ID
+    title: string;           // 标题
+    type: SupportType;       // 类型
+    score?: number;          // 评分
+    url: string;            // 豆瓣页面URL
+    desc?: string;          // 简介
+    image?: string;         // 封面图片
+    datePublished?: string; // 发布日期
+    // ... 其他通用属性
+}
+```
+
+### 2. 个人数据模型
+```typescript
+interface PersonalData {
+    myRating?: number;        // 个人评分
+    myState?: string;         // 状态（想看/在看/看过）
+    myComment?: string;       // 个人评论
+    myCollectionDate?: string; // 标记日期
+    myTags?: string[];        // 个人标签
+}
+```
+
+### 3. 扩展字段处理
+不同类型的内容有特定的扩展字段：
+
+**书籍特有字段：**
+```typescript
+interface BookSpecific {
+    author?: string[];      // 作者
+    translator?: string[];  // 译者  
+    publisher?: string;     // 出版社
+    isbn?: string;         // ISBN
+    totalPage?: number;    // 页数
+}
+```
+
+**电影特有字段：**  
+```typescript
+interface MovieSpecific {
+    director?: string[];    // 导演
+    actor?: string[];      // 演员
+    originalTitle?: string; // 原名
+    country?: string[];    // 国家
+    language?: string[];   // 语言
+    time?: string;         // 时长
+}
+```
+
+## 网络请求优化
+
+### 1. HttpUtil 使用
+项目提供了桌面端和移动端的不同实现：
+- `DesktopHttpUtil` - 桌面端HTTP请求
+- `MobileHttpUtil` - 移动端HTTP请求
+
+### 2. 请求头设置
+```typescript
+const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.8,en;q=0.6',
+    'Accept-Encoding': 'gzip, deflate',
+    'Referer': 'https://www.douban.com/'
+};
+```
+
+### 3. 图片处理
+支持多种图片保存方式：
+- **本地保存**：下载到 attachments 文件夹
+- **图床上传**：支持 PicGo 等图床服务
+- **原始链接**：直接使用豆瓣图片链接
+
+## 模板变量系统
+
+### 1. 变量替换机制
+```typescript
+// 变量替换示例
+let template = "# {{title}}\n评分: {{score}}\n类型: {{type}}";
+template = VariableUtil.replaceVariables(template, doubanSubject);
+```
+
+### 2. 支持的变量列表
+**通用变量：**
+- `{{title}}` - 标题
+- `{{score}}` - 评分  
+- `{{scoreStar}}` - 评分星级显示
+- `{{type}}` - 类型
+- `{{url}}` - 豆瓣链接
+- `{{desc}}` - 简介
+- `{{currentDate}}` - 当前日期
+- `{{currentTime}}` - 当前时间
+
+**个人数据变量：**
+- `{{myRating}}` - 个人评分
+- `{{myState}}` - 个人状态
+- `{{myComment}}` - 个人评论
+- `{{myCollectionDate}}` - 标记日期
+- `{{myTags}}` - 个人标签
+
+### 3. 数组格式化
+支持自定义数组显示格式：
+```typescript
+// 数组设置示例
+{
+    arrayStart: "",
+    arrayElementStart: "[[",
+    arraySpiltV2: ",",  
+    arrayElementEnd: "]]",
+    arrayEnd: ""
+}
+// 结果: [[导演1]],[[导演2]],[[导演3]]
+```
+
+## 同步功能实现
+
+### 1. 同步配置
+```typescript
+interface SyncConfig {
+    userId: string;         // 用户ID
+    type: SupportType;      // 同步类型
+    states: string[];       // 状态过滤
+    replaceExist: boolean;  // 替换已存在文件
+}
+```
+
+### 2. 批量处理策略
+- **分页获取**：处理大量用户数据
+- **增量同步**：避免重复处理已存在的笔记
+- **错误恢复**：记录处理状态，支持中断恢复
+- **状态更新**：实时显示处理进度
+
+### 3. 文件命名和路径
+支持灵活的文件命名模板：
+```typescript
+// 路径模板示例
+const pathTemplate = "{{type}}/{{title}}.md";
+const finalPath = VariableUtil.replaceVariables(pathTemplate, subject);
+```
+
+## 调试和日志
+
+### 1. 调试信息输出
+```typescript
+import { log } from "src/org/wanxp/utils/Logutil";
+
+log.debug('开始处理豆瓣数据', { id: subject.id, type: subject.type });
+log.info('数据处理完成', { title: subject.title });
+log.error('网络请求失败', error);
+```
+
+### 2. 状态栏提示
+```typescript
+// 显示处理状态
+this.doubanStatusBar.setText(`正在处理: ${subject.title}`);
+
+// 清理状态栏（5秒后）
+setTimeout(() => {
+    this.doubanStatusBar.setText('');
+}, BasicConst.CLEAN_STATUS_BAR_DELAY);
+```
+
+### 3. 用户通知
+```typescript
+import { Notice } from 'obsidian';
+
+// 成功提示
+new Notice(i18nHelper.t("notice.import.success"));
+
+// 错误提示  
+new Notice(i18nHelper.t("notice.import.failed"), 5000);
+```
